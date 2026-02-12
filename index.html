@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StudyPlanner Pro</title>
+
+<!-- Librerías para gráfico y PDF -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+body{
+    font-family: Arial, sans-serif;
+    background:#f4f6f9;
+    padding:20px;
+    max-width:900px;
+    margin:auto;
+    transition:0.3s;
+}
+
+.dark{
+    background:#1e1e1e;
+    color:white;
+}
+
+h1{text-align:center;}
+
+.card{
+    background:white;
+    padding:20px;
+    border-radius:10px;
+    box-shadow:0 4px 10px rgba(0,0,0,0.1);
+    margin-bottom:20px;
+    transition:0.3s;
+}
+
+.dark .card{
+    background:#2c2c2c;
+}
+
+input, select, button{
+    padding:10px;
+    margin:5px 0;
+    width:100%;
+    border-radius:6px;
+    border:1px solid #ccc;
+}
+
+button{
+    background:#4CAF50;
+    color:white;
+    border:none;
+    cursor:pointer;
+}
+
+button:hover{background:#45a049;}
+
+.deleteBtn{
+    background:#e74c3c;
+    margin-top:5px;
+}
+#pomodoro{
+    font-size:30px;
+    text-align:center;
+    margin:10px 0;
+}
+</style>
+</head>
+
+<body>
+
+<h1>📚 StudyPlanner Pro</h1>
+
+<button onclick="toggleDarkMode()">🌙 Modo oscuro</button>
+
+<!-- Añadir Materia -->
+<div class="card">
+<h3>Añadir asignatura</h3>
+<input id="nombre" placeholder="Nombre de la asignatura">
+<select id="dificultad">
+<option value="1">Dificultad 1</option>
+<option value="2">Dificultad 2</option>
+<option value="3">Dificultad 3</option>
+<option value="4">Dificultad 4</option>
+<option value="5">Dificultad 5</option>
+</select>
+<label for="fecha">Fecha del examen:</label>
+<input type="date" id="fecha">
+<button onclick="agregarMateria()">Añadir</button>
+</div>
+
+<!-- Horas y PDF -->
+<div class="card">
+<h3>Horas disponibles</h3>
+<input type="number" id="horasTotales" placeholder="Horas totales">
+<button onclick="generarPlan()">Generar plan</button>
+<button onclick="exportarPDF()">Exportar PDF</button>
+</div>
+
+<!-- Lista de Materias -->
+<div class="card">
+<h3>Materias</h3>
+<ul id="listaMaterias"></ul>
+</div>
+
+<!-- Plan de estudio y gráfico -->
+<div class="card">
+<h3>Plan de estudio</h3>
+<ul id="listaResultados"></ul>
+<canvas id="grafico"></canvas>
+</div>
+
+<!-- Pomodoro -->
+<div class="card">
+<h3>⏳ Temporizador Pomodoro</h3>
+<label for="pomodoroTiempo">Duración (minutos):</label>
+<input type="number" id="pomodoroTiempo" value="25" min="1">
+<div id="pomodoro">25:00</div>
+<button onclick="iniciarPomodoro()">Iniciar</button>
+<button onclick="resetPomodoro()">Reset</button>
+</div>
+
+<script>
+let materias = JSON.parse(localStorage.getItem("materias")) || [];
+let chart;
+let tiempo;
+let intervalo;
+
+function guardarDatos(){
+    localStorage.setItem("materias", JSON.stringify(materias));
+}
+
+function toggleDarkMode(){
+    document.body.classList.toggle("dark");
+}
+
+function agregarMateria(){
+    let nombre = document.getElementById("nombre").value;
+    let dificultad = parseInt(document.getElementById("dificultad").value);
+    let fecha = document.getElementById("fecha").value;
+
+    if(!nombre || !fecha) return alert("Completa todos los campos");
+
+    let urgencia = calcularUrgencia(fecha);
+
+    materias.push({nombre,dificultad,urgencia,fecha});
+    guardarDatos();
+    mostrarMaterias();
+}
+
+function eliminarMateria(index){
+    materias.splice(index,1);
+    guardarDatos();
+    mostrarMaterias();
+}
+
+function mostrarMaterias(){
+    let lista = document.getElementById("listaMaterias");
+    lista.innerHTML="";
+    materias.forEach((m,i)=>{
+        let li=document.createElement("li");
+        li.innerHTML= `${m.nombre} - Examen: ${m.fecha} 
+        <button class="deleteBtn" onclick="eliminarMateria(${i})">Eliminar</button>`;
+        lista.appendChild(li);
+    });
+}
+
+function calcularUrgencia(fecha){
+    let hoy=new Date();
+    let examen=new Date(fecha);
+    let dias=(examen-hoy)/(1000*60*60*24);
+
+    if(dias<=3) return 5;
+    if(dias<=7) return 4;
+    if(dias<=14) return 3;
+    if(dias<=30) return 2;
+    return 1;
+}
+
+function generarPlan(){
+    let horas=parseFloat(document.getElementById("horasTotales").value);
+    if(!horas) return alert("Introduce horas");
+
+    let lista=document.getElementById("listaResultados");
+    lista.innerHTML="";
+
+    let pesoTotal=materias.reduce((t,m)=>t+(m.dificultad*m.urgencia),0);
+
+    let labels=[];
+    let data=[];
+    let textoPDF="PLAN DE ESTUDIO\n\n";
+
+    materias.forEach(m=>{
+        let peso=m.dificultad*m.urgencia;
+        let horasAsignadas=(peso/pesoTotal)*horas;
+
+        labels.push(m.nombre);
+        data.push(horasAsignadas.toFixed(2));
+
+        let li=document.createElement("li");
+        li.textContent=`${m.nombre}: ${horasAsignadas.toFixed(2)} horas`;
+        lista.appendChild(li);
+
+        textoPDF+=`${m.nombre}: ${horasAsignadas.toFixed(2)} horas\n`;
+    });
+
+    generarGrafico(labels,data);
+    window.planPDF=textoPDF;
+}
+
+function generarGrafico(labels,data){
+    if(chart) chart.destroy();
+    let ctx=document.getElementById("grafico").getContext("2d");
+
+    chart=new Chart(ctx,{
+        type:"pie",
+        data:{
+            labels:labels,
+            datasets:[{
+                data:data,
+                backgroundColor:[
+                    "#4CAF50","#FF6384","#36A2EB","#FFCE56","#8E44AD"
+                ]
+            }]
+        },
+        options:{
+            plugins:{legend:{position:'bottom'}}
+        }
+    });
+}
+
+async function exportarPDF(){
+    if(!window.planPDF) return alert("Genera el plan primero");
+
+    const { jsPDF } = window.jspdf;
+    let doc=new jsPDF();
+    doc.text(window.planPDF,10,10);
+    doc.save("plan_estudio.pdf");
+}
+
+/* POMODORO */
+function iniciarPomodoro(){
+    if(intervalo) return;
+
+    let minutos=parseInt(document.getElementById("pomodoroTiempo").value);
+    if(!minutos || minutos<=0) return alert("Introduce un tiempo válido");
+
+    tiempo=minutos*60;
+
+    intervalo=setInterval(()=>{
+        tiempo--;
+        let min=Math.floor(tiempo/60);
+        let sec=tiempo%60;
+        document.getElementById("pomodoro").textContent=
+            `${min}:${sec<10?"0":""}${sec}`;
+
+        if(tiempo<=0){
+            clearInterval(intervalo);
+            intervalo=null;
+            alert("¡Tiempo terminado!");
+        }
+    },1000);
+}
+
+function resetPomodoro(){
+    clearInterval(intervalo);
+    intervalo=null;
+    let minutos=parseInt(document.getElementById("pomodoroTiempo").value) || 25;
+    tiempo=minutos*60;
+    document.getElementById("pomodoro").textContent=`${minutos}:00`;
+}
+
+mostrarMaterias();
+
+</script>
+</body>
+</html>
